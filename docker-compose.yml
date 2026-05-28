@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  ark-connect-db:
+    image: postgres:16-alpine
+    container_name: ark_connect_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ark_connect_assistant
+      POSTGRES_USER: ark_admin
+      POSTGRES_PASSWORD: ArkConnect2026!
+    ports:
+      - "5433:5432"
+    volumes:
+      - ark_connect_data:/var/lib/postgresql/data
+
+volumes:
+  ark_connect_data:

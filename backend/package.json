@@ -1,0 +1,18 @@
+{
+  "name": "ark-connect-backend",
+  "version": "1.0.0",
+  "description": "Ark Connect AI Assistant - Node.js Backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node database/seed.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "pg": "^8.13.0"
+  }
+}
