@@ -1,12 +1,13 @@
 {
   "name": "ark-connect-backend",
-  "version": "1.0.0",
-  "description": "Ark Connect AI Assistant - Node.js Backend",
+  "version": "2.0.0",
+  "description": "Ark Connect AI Assistant - RAG-Enhanced Backend with Feedback Learning",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "seed": "node database/seed.js"
+    "seed": "node database/seed.js",
+    "migrate": "node database/migrate.js"
   },
   "dependencies": {
     "@google/genai": "^2.6.0",

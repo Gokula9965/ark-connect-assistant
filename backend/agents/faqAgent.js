@@ -1,50 +1,55 @@
 /**
- * FAQ Agent
+ * FAQ Agent — RAG-Enhanced
  * 
  * Specialized agent for frequently asked questions.
- * Data Source: `faqs` table in PostgreSQL
+ * 
+ * RAG flow:
+ *   1. User question → embed with text-embedding-004
+ *   2. Cosine similarity search on `faqs` table via pgvector
+ *   3. Top-5 relevant FAQs injected into prompt
+ *   4. Learned examples (👍) + correction patterns (👎) added
+ *   5. Gemini generates grounded response
  */
 
-const { pool } = require('../database/db');
 const { callGemini } = require('../services/geminiService');
-const { getLearnedExamples } = require('../services/learningService');
+const { retrieveFAQs } = require('../services/retrievalService');
+const { getFullLearningContext } = require('../services/learningService');
 
 const AGENT_PROMPT = `You are the FAQ Agent for Ark Connect. You ONLY handle frequently asked questions.
 
 Rules:
 - Respond in the user's language (Tamil→Tamil, Hindi→Hindi, English→English)
 - Keep feature names/buttons in English
-- ONLY use the provided FAQ data
+- ONLY use the provided FAQ data — do not invent answers
 - Give clear, concise answers
+- If the retrieved FAQs don't cover the question, say you'll forward it to support
 - Use emojis sparingly (✅, 📌)`;
 
 /**
- * Fetch FAQ knowledge from the database
+ * Build context from semantically retrieved FAQs
  */
-async function getKnowledge() {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      'SELECT question, answer, category FROM faqs ORDER BY category'
-    );
-
-    let context = '';
-    result.rows.forEach(faq => {
-      context += `Q: ${faq.question}\nA: ${faq.answer}\n\n`;
-    });
-
-    return context;
-  } finally {
-    client.release();
-  }
+function formatRetrievedFAQs(rows) {
+  let context = '';
+  rows.forEach(faq => {
+    context += `Q: ${faq.question}`;
+    if (faq.similarity) context += ` (relevance: ${(faq.similarity * 100).toFixed(0)}%)`;
+    context += `\nA: ${faq.answer}\n\n`;
+  });
+  return context;
 }
 
 async function handle(question, history = []) {
-  console.log('   🚀 FAQ Agent → DB: faqs');
-  const knowledge = await getKnowledge();
-  const learned = await getLearnedExamples('faq');
+  console.log('   🚀 FAQ Agent → Semantic search on faqs');
 
-  let prompt = `## FAQ Data\n${knowledge}${learned}`;
+  // RAG retrieval: embed query → cosine similarity → top-5
+  const { rows, method } = await retrieveFAQs(question);
+  const knowledge = formatRetrievedFAQs(rows);
+  console.log(`   📊 Retrieved ${rows.length} FAQs via ${method}`);
+
+  // Feedback-driven learning context
+  const learned = await getFullLearningContext('faq');
+
+  let prompt = `## Retrieved FAQs (${method} search)\n${knowledge}${learned}`;
   if (history.length > 0) {
     prompt += '\n\n## Previous Conversation\n';
     history.slice(-6).forEach(m => {

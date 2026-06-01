@@ -1,21 +1,28 @@
 /**
- * Features Agent
+ * Features Agent — RAG-Enhanced
  * 
  * Specialized agent for app feature walkthroughs and how-to guides.
- * Data Source: `features` table in PostgreSQL
+ * 
+ * RAG flow:
+ *   1. User question → embed with text-embedding-004
+ *   2. Cosine similarity search on `features` table via pgvector
+ *   3. Top-5 relevant features injected into prompt
+ *   4. Learned examples (👍) + correction patterns (👎) added
+ *   5. Gemini generates grounded response
  */
 
-const { pool } = require('../database/db');
 const { callGemini } = require('../services/geminiService');
-const { getLearnedExamples } = require('../services/learningService');
+const { retrieveFeatures } = require('../services/retrievalService');
+const { getFullLearningContext } = require('../services/learningService');
 
 const AGENT_PROMPT = `You are a friendly Features Guide for Ark Connect. Help users understand and use app features.
 
 Rules:
 - Respond in the user's language (Tamil→Tamil, Hindi→Hindi, English→English)
 - Keep feature names/buttons in English
-- ONLY use the provided features data
+- ONLY use the provided features data — do not make up features
 - Always mention which roles can access the feature
+- If the retrieved context doesn't cover the question, say you don't have that information
 
 IMPORTANT - Vary your response style each time:
 - Sometimes start with a brief explanation, then give steps
@@ -26,38 +33,36 @@ IMPORTANT - Vary your response style each time:
 - Be creative with how you present the information while keeping it accurate`;
 
 /**
- * Fetch features knowledge from the database
+ * Build context from semantically retrieved features
  */
-async function getKnowledge() {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      'SELECT name, category, purpose, steps, permissions FROM features ORDER BY category, name'
-    );
-
-    let context = '';
-    result.rows.forEach(f => {
-      context += `\n### ${f.name} [${f.category}]\n`;
-      context += `Purpose: ${f.purpose}\n`;
-      const steps = typeof f.steps === 'string' ? JSON.parse(f.steps) : f.steps;
-      steps.forEach((s, i) => { context += `${i + 1}. ${s}\n`; });
-      const perms = typeof f.permissions === 'string' ? JSON.parse(f.permissions) : f.permissions;
-      context += `Roles: ${perms.join(', ')}\n`;
-    });
-
-    return context;
-  } finally {
-    client.release();
-  }
+function formatRetrievedFeatures(rows) {
+  let context = '';
+  rows.forEach(f => {
+    context += `\n### ${f.name} [${f.category}]`;
+    if (f.similarity) context += ` (relevance: ${(f.similarity * 100).toFixed(0)}%)`;
+    context += '\n';
+    context += `Purpose: ${f.purpose}\n`;
+    const steps = typeof f.steps === 'string' ? JSON.parse(f.steps) : f.steps;
+    steps.forEach((s, i) => { context += `${i + 1}. ${s}\n`; });
+    const perms = typeof f.permissions === 'string' ? JSON.parse(f.permissions) : f.permissions;
+    context += `Roles: ${perms.join(', ')}\n`;
+  });
+  return context;
 }
 
 async function handle(question, history = []) {
-  console.log('   🚀 Features Agent → DB: features');
-  const knowledge = await getKnowledge();
-  const learned = await getLearnedExamples('features');
+  console.log('   🚀 Features Agent → Semantic search on features');
 
-  // Build prompt with conversation history
-  let prompt = `## Features Data\n${knowledge}${learned}`;
+  // RAG retrieval: embed query → cosine similarity → top-5
+  const { rows, method } = await retrieveFeatures(question);
+  const knowledge = formatRetrievedFeatures(rows);
+  console.log(`   📊 Retrieved ${rows.length} features via ${method}`);
+
+  // Feedback-driven learning context
+  const learned = await getFullLearningContext('features');
+
+  // Build prompt with retrieved context + learning + history
+  let prompt = `## Retrieved Features (${method} search)\n${knowledge}${learned}`;
   if (history.length > 0) {
     prompt += '\n\n## Previous Conversation\n';
     history.slice(-6).forEach(m => {

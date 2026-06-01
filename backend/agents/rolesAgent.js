@@ -1,53 +1,58 @@
 /**
- * Roles Agent
+ * Roles Agent — RAG-Enhanced
  * 
  * Specialized agent for role and permission queries.
- * Data Source: `roles_permissions` table in PostgreSQL
+ * 
+ * RAG flow:
+ *   1. User question → embed with text-embedding-004
+ *   2. Cosine similarity search on `roles_permissions` table via pgvector
+ *   3. Top relevant roles injected into prompt
+ *   4. Learned examples (👍) + correction patterns (👎) added
+ *   5. Gemini generates grounded response
  */
 
-const { pool } = require('../database/db');
 const { callGemini } = require('../services/geminiService');
-const { getLearnedExamples } = require('../services/learningService');
+const { retrieveRoles } = require('../services/retrievalService');
+const { getFullLearningContext } = require('../services/learningService');
 
 const AGENT_PROMPT = `You are the Roles & Permissions Agent for Ark Connect. You ONLY handle role/permission questions.
 
 Rules:
 - Respond in the user's language (Tamil→Tamil, Hindi→Hindi, English→English)
 - Keep role names (Admin, Moderator, etc.) in English
-- ONLY use the provided roles data
+- ONLY use the provided roles data — do not invent permissions
 - Compare roles clearly when asked
+- If the retrieved data doesn't cover the question, say you don't have that information
 - Use emojis sparingly (✅, ❌)`;
 
 /**
- * Fetch roles knowledge from the database
+ * Build context from semantically retrieved roles
  */
-async function getKnowledge() {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      'SELECT role_name, description, capabilities FROM roles_permissions'
-    );
-
-    let context = '';
-    result.rows.forEach(role => {
-      context += `\n### ${role.role_name}\n`;
-      context += `${role.description}\n`;
-      const caps = typeof role.capabilities === 'string' ? JSON.parse(role.capabilities) : role.capabilities;
-      context += `Can: ${caps.join(', ')}\n`;
-    });
-
-    return context;
-  } finally {
-    client.release();
-  }
+function formatRetrievedRoles(rows) {
+  let context = '';
+  rows.forEach(role => {
+    context += `\n### ${role.role_name}`;
+    if (role.similarity) context += ` (relevance: ${(role.similarity * 100).toFixed(0)}%)`;
+    context += '\n';
+    context += `${role.description}\n`;
+    const caps = typeof role.capabilities === 'string' ? JSON.parse(role.capabilities) : role.capabilities;
+    context += `Can: ${caps.join(', ')}\n`;
+  });
+  return context;
 }
 
 async function handle(question, history = []) {
-  console.log('   🚀 Roles Agent → DB: roles_permissions');
-  const knowledge = await getKnowledge();
-  const learned = await getLearnedExamples('roles');
+  console.log('   🚀 Roles Agent → Semantic search on roles_permissions');
 
-  let prompt = `## Roles Data\n${knowledge}${learned}`;
+  // RAG retrieval: embed query → cosine similarity → top-4
+  const { rows, method } = await retrieveRoles(question);
+  const knowledge = formatRetrievedRoles(rows);
+  console.log(`   📊 Retrieved ${rows.length} roles via ${method}`);
+
+  // Feedback-driven learning context
+  const learned = await getFullLearningContext('roles');
+
+  let prompt = `## Retrieved Roles Data (${method} search)\n${knowledge}${learned}`;
   if (history.length > 0) {
     prompt += '\n\n## Previous Conversation\n';
     history.slice(-6).forEach(m => {

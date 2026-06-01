@@ -1,13 +1,19 @@
 /**
- * Onboarding Agent
+ * Onboarding Agent — RAG-Enhanced
  * 
  * Specialized agent for church/member onboarding queries.
- * Data Source: `onboarding_steps` table in PostgreSQL
+ * 
+ * RAG flow:
+ *   1. User question → embed with text-embedding-004
+ *   2. Cosine similarity search on `onboarding_steps` table via pgvector
+ *   3. Top-5 relevant steps injected into prompt
+ *   4. Learned examples (👍) + correction patterns (👎) added
+ *   5. Gemini generates grounded response
  */
 
-const { pool } = require('../database/db');
 const { callGemini } = require('../services/geminiService');
-const { getLearnedExamples } = require('../services/learningService');
+const { retrieveOnboarding } = require('../services/retrievalService');
+const { getFullLearningContext } = require('../services/learningService');
 
 // Concise system prompt — optimized for fewer tokens
 const AGENT_PROMPT = `You are the Onboarding Agent for Ark Connect. You ONLY handle church/member onboarding.
@@ -15,44 +21,42 @@ const AGENT_PROMPT = `You are the Onboarding Agent for Ark Connect. You ONLY han
 Rules:
 - Respond in the user's language (Tamil→Tamil, Hindi→Hindi, English→English)
 - Keep feature names/buttons in English
-- ONLY use the provided onboarding data
+- ONLY use the provided onboarding data — do not make up steps
 - Number steps clearly
+- If the retrieved steps don't cover the question, say you don't have that information
 - Use emojis sparingly (✅, 📌)`;
 
 /**
- * Fetch onboarding knowledge from the database
+ * Build context from semantically retrieved onboarding steps
  */
-async function getKnowledge() {
-  const client = await pool.connect();
-  try {
-    const result = await client.query(
-      'SELECT flow_name, step_number, title, description, requirements FROM onboarding_steps ORDER BY flow_name, step_number'
-    );
-
-    let context = '';
-    let currentFlow = '';
-    result.rows.forEach(step => {
-      if (step.flow_name !== currentFlow) {
-        currentFlow = step.flow_name;
-        context += `\n## ${currentFlow}\n`;
-      }
-      context += `${step.step_number}. ${step.title}: ${step.description}`;
-      if (step.requirements) context += ` (Requires: ${step.requirements})`;
-      context += '\n';
-    });
-
-    return context;
-  } finally {
-    client.release();
-  }
+function formatRetrievedOnboarding(rows) {
+  let context = '';
+  let currentFlow = '';
+  rows.forEach(step => {
+    if (step.flow_name !== currentFlow) {
+      currentFlow = step.flow_name;
+      context += `\n## ${currentFlow}\n`;
+    }
+    context += `${step.step_number}. ${step.title}: ${step.description}`;
+    if (step.requirements) context += ` (Requires: ${step.requirements})`;
+    if (step.similarity) context += ` [relevance: ${(step.similarity * 100).toFixed(0)}%]`;
+    context += '\n';
+  });
+  return context;
 }
 
 async function handle(question, history = []) {
-  console.log('   🚀 Onboarding Agent → DB: onboarding_steps');
-  const knowledge = await getKnowledge();
-  const learned = await getLearnedExamples('onboarding');
+  console.log('   🚀 Onboarding Agent → Semantic search on onboarding_steps');
 
-  let prompt = `## Onboarding Data\n${knowledge}${learned}`;
+  // RAG retrieval: embed query → cosine similarity → top-5
+  const { rows, method } = await retrieveOnboarding(question);
+  const knowledge = formatRetrievedOnboarding(rows);
+  console.log(`   📊 Retrieved ${rows.length} onboarding steps via ${method}`);
+
+  // Feedback-driven learning context
+  const learned = await getFullLearningContext('onboarding');
+
+  let prompt = `## Retrieved Onboarding Steps (${method} search)\n${knowledge}${learned}`;
   if (history.length > 0) {
     prompt += '\n\n## Previous Conversation\n';
     history.slice(-6).forEach(m => {

@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   ark-connect-db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: ark_connect_db
     restart: unless-stopped
     environment:

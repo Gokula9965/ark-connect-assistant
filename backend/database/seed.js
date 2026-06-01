@@ -1,4 +1,5 @@
 const { pool, initializeDatabase } = require('./db');
+const { generateEmbedding, buildEmbeddingText } = require('../services/embeddingService');
 
 const features = [
   {
@@ -148,59 +149,141 @@ const rolesPermissions = [
   }
 ];
 
-async function seedDatabase() {
-  console.log('🌱 Starting database seed...\n');
+/**
+ * Generate embedding for a knowledge item with retry logic.
+ */
+async function embedWithRetry(text, label, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const embedding = await generateEmbedding(text);
+      return embedding;
+    } catch (error) {
+      if (attempt < retries) {
+        const wait = 3000 * (attempt + 1);
+        console.log(`   ⏳ Retry ${attempt + 1} for "${label}" in ${wait / 1000}s...`);
+        await new Promise(resolve => setTimeout(resolve, wait));
+      } else {
+        console.log(`   ⚠️ Failed to embed "${label}" after ${retries + 1} attempts: ${error.message}`);
+        return null;
+      }
+    }
+  }
+}
 
-  // Initialize tables
+async function seedDatabase() {
+  console.log('🌱 Starting database seed with RAG embeddings...\n');
+
+  // Initialize tables (includes pgvector extension)
   await initializeDatabase();
 
   const client = await pool.connect();
   try {
     // Clear existing data
     await client.query('TRUNCATE features, faqs, onboarding_steps, roles_permissions RESTART IDENTITY CASCADE');
-    console.log('🗑️  Cleared existing data');
+    console.log('🗑️  Cleared existing data\n');
 
-    // Seed features
+    // ── Seed Features with Embeddings ──────────────────────────
+    console.log('📦 Seeding features...');
     for (const f of features) {
-      await client.query(
-        'INSERT INTO features (name, category, purpose, steps, permissions, keywords, related_questions) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [f.name, f.category, f.purpose, JSON.stringify(f.steps), JSON.stringify(f.permissions), f.keywords, JSON.stringify(f.related_questions)]
-      );
-    }
-    console.log(`✅ Seeded ${features.length} features`);
+      const embText = buildEmbeddingText({
+        name: f.name,
+        category: f.category,
+        purpose: f.purpose,
+        steps: f.steps,
+        keywords: f.keywords,
+      });
+      const embedding = await embedWithRetry(embText, f.name);
 
-    // Seed FAQs
+      await client.query(
+        `INSERT INTO features (name, category, purpose, steps, permissions, keywords, related_questions, embedding) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          f.name, f.category, f.purpose,
+          JSON.stringify(f.steps), JSON.stringify(f.permissions),
+          f.keywords, JSON.stringify(f.related_questions),
+          embedding ? `[${embedding.join(',')}]` : null,
+        ]
+      );
+      console.log(`   ✅ ${f.name} ${embedding ? '(embedded)' : '(no embedding)'}`);
+    }
+    console.log(`✅ Seeded ${features.length} features\n`);
+
+    // ── Seed FAQs with Embeddings ──────────────────────────────
+    console.log('📦 Seeding FAQs...');
     for (const faq of faqs) {
-      await client.query(
-        'INSERT INTO faqs (question, answer, category, keywords) VALUES ($1, $2, $3, $4)',
-        [faq.question, faq.answer, faq.category, faq.keywords]
-      );
-    }
-    console.log(`✅ Seeded ${faqs.length} FAQs`);
+      const embText = buildEmbeddingText({
+        question: faq.question,
+        answer: faq.answer,
+        category: faq.category,
+        keywords: faq.keywords,
+      });
+      const embedding = await embedWithRetry(embText, faq.question.substring(0, 40));
 
-    // Seed onboarding steps
+      await client.query(
+        `INSERT INTO faqs (question, answer, category, keywords, embedding) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          faq.question, faq.answer, faq.category, faq.keywords,
+          embedding ? `[${embedding.join(',')}]` : null,
+        ]
+      );
+      console.log(`   ✅ ${faq.question.substring(0, 50)}... ${embedding ? '(embedded)' : ''}`);
+    }
+    console.log(`✅ Seeded ${faqs.length} FAQs\n`);
+
+    // ── Seed Onboarding Steps with Embeddings ──────────────────
+    console.log('📦 Seeding onboarding steps...');
     for (const step of onboardingSteps) {
-      await client.query(
-        'INSERT INTO onboarding_steps (flow_name, step_number, title, description, requirements) VALUES ($1, $2, $3, $4, $5)',
-        [step.flow, step.step, step.title, step.description, step.requirements]
-      );
-    }
-    console.log(`✅ Seeded ${onboardingSteps.length} onboarding steps`);
+      const embText = buildEmbeddingText({
+        flow: step.flow,
+        title: step.title,
+        description: step.description,
+        requirements: step.requirements,
+      });
+      const embedding = await embedWithRetry(embText, `${step.flow} Step ${step.step}`);
 
-    // Seed roles
-    for (const role of rolesPermissions) {
       await client.query(
-        'INSERT INTO roles_permissions (role_name, description, capabilities) VALUES ($1, $2, $3)',
-        [role.role, role.description, JSON.stringify(role.capabilities)]
+        `INSERT INTO onboarding_steps (flow_name, step_number, title, description, requirements, embedding) 
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          step.flow, step.step, step.title, step.description, step.requirements,
+          embedding ? `[${embedding.join(',')}]` : null,
+        ]
       );
+      console.log(`   ✅ ${step.flow} #${step.step} ${embedding ? '(embedded)' : ''}`);
+    }
+    console.log(`✅ Seeded ${onboardingSteps.length} onboarding steps\n`);
+
+    // ── Seed Roles with Embeddings ─────────────────────────────
+    console.log('📦 Seeding roles...');
+    for (const role of rolesPermissions) {
+      const embText = buildEmbeddingText({
+        role: role.role,
+        description: role.description,
+        capabilities: role.capabilities,
+      });
+      const embedding = await embedWithRetry(embText, role.role);
+
+      await client.query(
+        `INSERT INTO roles_permissions (role_name, description, capabilities, embedding) 
+         VALUES ($1, $2, $3, $4)`,
+        [
+          role.role, role.description, JSON.stringify(role.capabilities),
+          embedding ? `[${embedding.join(',')}]` : null,
+        ]
+      );
+      console.log(`   ✅ ${role.role} ${embedding ? '(embedded)' : ''}`);
     }
     console.log(`✅ Seeded ${rolesPermissions.length} roles\n`);
 
-    console.log('🎉 Database seeded successfully!');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // ── Summary ────────────────────────────────────────────────
+    console.log('🎉 Database seeded successfully with RAG embeddings!');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('DB: ark_connect_assistant');
     console.log('Port: 5433');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('Vector dimensions: 768');
+    console.log('Embedding model: text-embedding-004');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
     console.error('❌ Seed error:', error.message);
