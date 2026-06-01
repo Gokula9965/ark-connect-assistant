@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const { initializeDatabase } = require('./database/db');
+const { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } = require('./services/embeddingService');
 const chatRoutes = require('./routes/chat');
 const featuresRoutes = require('./routes/features');
 const suggestionsRoutes = require('./routes/suggestions');
@@ -59,8 +60,8 @@ app.get('/api/health', async (req, res) => {
         enabled: embeddedCount > 0,
         embedded_features: embeddedCount,
         search_method: embeddedCount > 0 ? 'vector_cosine_similarity' : 'keyword_fallback',
-        embedding_model: 'text-embedding-004',
-        vector_dimensions: 768,
+        embedding_model: EMBEDDING_MODEL,
+        vector_dimensions: EMBEDDING_DIMENSIONS,
       },
       learning: {
         total_examples: parseInt(learnedCheck.rows[0].total),
@@ -100,7 +101,7 @@ async function start() {
       console.log(`  Analytics:       GET  /api/feedback/analytics`);
       console.log(`  Health:          GET  /api/health`);
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`  RAG: pgvector + text-embedding-004 (768d)`);
+      console.log(`  RAG: pgvector + ${EMBEDDING_MODEL} (${EMBEDDING_DIMENSIONS}d)`);
       console.log(`  Learning: 👍 few-shot + 👎 corrections + anti-patterns`);
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
     });

@@ -2,7 +2,7 @@
  * Retrieval Service — Semantic Vector Search Engine
  * 
  * Core of the RAG pipeline. Given a user query:
- *  1. Embeds the query using Gemini text-embedding-004
+ *  1. Embeds the query using the configured Gemini embedding model
  *  2. Performs cosine similarity search via pgvector
  *  3. Returns top-k relevant knowledge chunks
  *  4. Falls back to keyword search if vector search fails

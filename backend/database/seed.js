@@ -1,5 +1,5 @@
 const { pool, initializeDatabase } = require('./db');
-const { generateEmbedding, buildEmbeddingText } = require('../services/embeddingService');
+const { generateEmbedding, buildEmbeddingText, EMBEDDING_MODEL } = require('../services/embeddingService');
 
 const features = [
   {
@@ -282,7 +282,7 @@ async function seedDatabase() {
     console.log('DB: ark_connect_assistant');
     console.log('Port: 5433');
     console.log('Vector dimensions: 768');
-    console.log('Embedding model: text-embedding-004');
+    console.log(`Embedding model: ${EMBEDDING_MODEL}`);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {

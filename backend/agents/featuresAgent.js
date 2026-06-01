@@ -4,7 +4,7 @@
  * Specialized agent for app feature walkthroughs and how-to guides.
  * 
  * RAG flow:
- *   1. User question → embed with text-embedding-004
+ *   1. User question → embed with the configured Gemini embedding model
  *   2. Cosine similarity search on `features` table via pgvector
  *   3. Top-5 relevant features injected into prompt
  *   4. Learned examples (👍) + correction patterns (👎) added

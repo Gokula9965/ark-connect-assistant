@@ -1,7 +1,7 @@
 /**
  * Embedding Service — Vector Embedding Generator
  * 
- * Uses Google Gemini's text-embedding-004 model to convert text
+ * Uses Google Gemini's embedding model to convert text
  * into 768-dimensional vector embeddings for semantic search.
  * 
  * Used by:
@@ -13,7 +13,7 @@
 const { GoogleGenAI } = require('@google/genai');
 require('dotenv').config();
 
-const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001';
 const EMBEDDING_DIMENSIONS = 768;
 
 // Cache the client to avoid re-creating on every call
@@ -51,7 +51,13 @@ async function generateEmbedding(text) {
       },
     });
 
-    return response.embedding.values;
+    const embedding = response.embedding || response.embeddings?.[0];
+
+    if (!embedding?.values) {
+      throw new Error('Gemini embedding response did not include embedding values.');
+    }
+
+    return embedding.values;
   } catch (error) {
     console.error(`   ❌ Embedding failed: ${error.message}`);
     throw error;
@@ -124,5 +130,6 @@ module.exports = {
   generateEmbeddings,
   buildEmbeddingText,
   toVectorLiteral,
+  EMBEDDING_MODEL,
   EMBEDDING_DIMENSIONS,
 };
