@@ -28,56 +28,6 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/suggestions', suggestionsRoutes);
 app.use('/api/feedback', feedbackRoutes);
 
-// Health check — includes RAG status
-app.get('/api/health', async (req, res) => {
-  try {
-    const { pool } = require('./database/db');
-
-    // Check if pgvector is available
-    const vecCheck = await pool.query(
-      `SELECT COUNT(*) AS embedded FROM features WHERE embedding IS NOT NULL`
-    );
-    const embeddedCount = parseInt(vecCheck.rows[0].embedded);
-
-    // Check learned examples
-    const learnedCheck = await pool.query(
-      `SELECT COUNT(*) AS total FROM learned_examples`
-    );
-
-    // Check feedback counts
-    const feedbackCheck = await pool.query(
-      `SELECT 
-         COUNT(*) FILTER (WHERE is_helpful = true) AS positive,
-         COUNT(*) FILTER (WHERE is_helpful = false) AS negative,
-         COUNT(*) FILTER (WHERE correction IS NOT NULL) AS corrected
-       FROM chat_feedback`
-    );
-
-    res.json({
-      status: 'ok',
-      service: 'ark-connect-backend',
-      rag: {
-        enabled: embeddedCount > 0,
-        embedded_features: embeddedCount,
-        search_method: embeddedCount > 0 ? 'vector_cosine_similarity' : 'keyword_fallback',
-        embedding_model: EMBEDDING_MODEL,
-        vector_dimensions: EMBEDDING_DIMENSIONS,
-      },
-      learning: {
-        total_examples: parseInt(learnedCheck.rows[0].total),
-        feedback_positive: parseInt(feedbackCheck.rows[0].positive),
-        feedback_negative: parseInt(feedbackCheck.rows[0].negative),
-        corrections_applied: parseInt(feedbackCheck.rows[0].corrected),
-      },
-    });
-  } catch (error) {
-    res.json({
-      status: 'ok',
-      service: 'ark-connect-backend',
-      rag: { enabled: false, error: error.message },
-    });
-  }
-});
 
 // Error handling
 app.use((err, req, res, next) => {
@@ -99,7 +49,7 @@ async function start() {
       console.log(`  Admin Correct:   POST /api/feedback/:id/correct`);
       console.log(`  Admin Review:    GET  /api/feedback/review`);
       console.log(`  Analytics:       GET  /api/feedback/analytics`);
-      console.log(`  Health:          GET  /api/health`);
+
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.log(`  RAG: pgvector + ${EMBEDDING_MODEL} (${EMBEDDING_DIMENSIONS}d)`);
       console.log(`  Learning: 👍 few-shot + 👎 corrections + anti-patterns`);
