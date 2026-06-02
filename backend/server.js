@@ -5,7 +5,7 @@ require('dotenv').config();
 const { initializeDatabase } = require('./database/db');
 const { EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } = require('./services/embeddingService');
 const chatRoutes = require('./routes/chat');
-const featuresRoutes = require('./routes/features');
+
 const suggestionsRoutes = require('./routes/suggestions');
 const feedbackRoutes = require('./routes/feedback');
 
@@ -24,7 +24,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/chat', chatRoutes);
-app.use('/api/features', featuresRoutes);
+
 app.use('/api/suggestions', suggestionsRoutes);
 app.use('/api/feedback', feedbackRoutes);
 
@@ -93,7 +93,7 @@ async function start() {
       console.log(`\n🚀 Ark Connect Backend running on http://localhost:${PORT}`);
       console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.log(`  Chat API:        POST /api/chat`);
-      console.log(`  Features:        GET  /api/features`);
+
       console.log(`  Suggestions:     GET  /api/suggestions`);
       console.log(`  Feedback:        POST /api/feedback`);
       console.log(`  Admin Correct:   POST /api/feedback/:id/correct`);
