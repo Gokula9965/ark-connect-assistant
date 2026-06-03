@@ -11,6 +11,14 @@ An **Agentic AI Assistant** for the Ark Connect platform — built with a multi-
 | **AI** | Google Gemini API | Natural-language understanding & generation |
 | **Database** | PostgreSQL | Knowledge base, feedback & learning store |
 
+### RAG Pipeline Flow
+
+![RAG Pipeline Architecture](ark_rag_pipeline_architecture.png)
+
+### Full System Architecture (with RAG & Embeddings)
+
+![Full System Architecture](ark_full_system_architecture.png)
+
 ## Project Structure
 
 ```
